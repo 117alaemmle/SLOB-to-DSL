@@ -12,20 +12,29 @@ header = """#NAME "Encyclopaedia Britannica 11th Ed"
 section_pattern = re.compile(r'(\s+[A-Z][a-zA-Z0-9\s]+?\.?\s*—)')
 em_space = "\u2003\u2003" 
 
-print("Pass 1: Building a smart memory bank of headwords...")
-headwords_db = set()
+print("Pass 1: Building a smart, un-inverted memory bank of headwords...")
+
+# This dictionary will map the "Natural Text" to the "Exact Headword"
+# Example: headwords_db["George Washington"] = "Washington, George"
+headwords_db = {}
 
 try:
     with open(input_file, 'r', encoding='utf-8') as f_in:
         for line in f_in:
             if '\t' in line:
                 hw = line.split('\t')[0].strip()
-                # istitle() ensures we grab multi-word titles like "Martin Luther" 
-                # as long as both words are capitalized.
+                
                 if hw.istitle() and len(hw) > 4:
-                    headwords_db.add(hw)
+                    # 1. Store the original headword (e.g., "Washington, George" -> "Washington, George")
+                    headwords_db[hw] = hw
+                    
+                    # 2. Handle comma inversions (e.g., "Washington, George" -> "George Washington")
+                    if ", " in hw:
+                        parts = hw.split(", ", 1)
+                        natural_name = f"{parts[1]} {parts[0]}"
+                        headwords_db[natural_name] = hw
 
-    print(f"Loaded {len(headwords_db)} valid headwords for cross-referencing.")
+    print(f"Loaded and mapped {len(headwords_db)} valid headwords and aliases.")
     print("Pass 2: Formatting text and injecting multi-word hyperlinks...")
 
     with open(input_file, 'r', encoding='utf-8') as f_in, open(output_file, 'w', encoding='utf-16') as f_out:
@@ -37,7 +46,6 @@ try:
                 headword, definition = line.split('\t', 1)
                 current_hw = headword.strip()
                 
-                # Smart function to handle multi-word sequences
                 def link_replacer(match):
                     phrase = match.group(1)
                     words = phrase.split()
@@ -45,20 +53,25 @@ try:
                     
                     result = []
                     i = 0
-                    # Sliding window: Try to find the longest matching phrase first
+                    # Sliding window tests the longest possible sequences first
                     while i < n:
                         match_found = False
                         for j in range(n, i, -1):
+                            # Reconstruct the phrase (e.g. "The Tower of London")
                             sub_phrase = " ".join(words[i:j])
                             
-                            # If the sequence exists and isn't the current article
-                            if sub_phrase in headwords_db and sub_phrase != current_hw:
-                                result.append(f"<<{sub_phrase}>>")
-                                i = j  # Skip ahead past the words we just linked
-                                match_found = True
-                                break
+                            # Check if it exists in our mapped database
+                            if sub_phrase in headwords_db:
+                                target_hw = headwords_db[sub_phrase]
                                 
-                        # If no multi-word or single-word match was found, leave the word alone
+                                # Prevent self-linking
+                                if target_hw != current_hw:
+                                    # Output the exact headword so the dictionary link works
+                                    result.append(f"<<{target_hw}>>")
+                                    i = j
+                                    match_found = True
+                                    break
+                                    
                         if not match_found:
                             result.append(words[i])
                             i += 1
@@ -81,8 +94,10 @@ try:
                     else:
                         body = part.strip()
                         
-                        # UPDATED REGEX: Captures sequences of one OR MORE capitalized words separated by spaces
-                        linked_body = re.sub(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b', link_replacer, body)
+                        # UPDATED REGEX: Captures sequences of Capitalized words, 
+                        # optionally separated by short lowercase words (of, the, de, a, an)
+                        # This allows it to capture "The Tower of London" or "Duke of Wellington"
+                        linked_body = re.sub(r'\b([A-Z][a-z]+(?:\s+(?:[a-z]{1,3}\s+)?[A-Z][a-z]+)*)\b', link_replacer, body)
                         
                         sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', linked_body)
                         paragraphs = []
