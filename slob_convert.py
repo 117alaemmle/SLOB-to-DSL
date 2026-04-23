@@ -12,10 +12,21 @@ header = """#NAME "Encyclopaedia Britannica 11th Ed"
 section_pattern = re.compile(r'(\s+[A-Z][a-zA-Z0-9\s]+?\.?\s*—)')
 em_space = "\u2003\u2003" 
 
+# --- THE BLACKLIST ---
+# These words will never be linked if they appear by themselves.
+# However, they WILL be linked if they are part of a longer valid name 
+# (e.g., "Queen" is ignored, but "Mary, Queen of Scots" is linked).
+blacklist = {
+    # Days of the week
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+    # Months of the year
+    "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December",
+    # Common Titles
+    "King", "Queen", "Prince", "Princess", "Duke", "Lord", "Lady", "Sir", "Saint", "Pope"
+}
+
 print("Pass 1: Building a smart, un-inverted memory bank of headwords...")
 
-# This dictionary will map the "Natural Text" to the "Exact Headword"
-# Example: headwords_db["George Washington"] = "Washington, George"
 headwords_db = {}
 
 try:
@@ -25,10 +36,8 @@ try:
                 hw = line.split('\t')[0].strip()
                 
                 if hw.istitle() and len(hw) > 4:
-                    # 1. Store the original headword (e.g., "Washington, George" -> "Washington, George")
                     headwords_db[hw] = hw
                     
-                    # 2. Handle comma inversions (e.g., "Washington, George" -> "George Washington")
                     if ", " in hw:
                         parts = hw.split(", ", 1)
                         natural_name = f"{parts[1]} {parts[0]}"
@@ -53,20 +62,16 @@ try:
                     
                     result = []
                     i = 0
-                    # Sliding window tests the longest possible sequences first
                     while i < n:
                         match_found = False
                         for j in range(n, i, -1):
-                            # Reconstruct the phrase (e.g. "The Tower of London")
                             sub_phrase = " ".join(words[i:j])
                             
-                            # Check if it exists in our mapped database
                             if sub_phrase in headwords_db:
                                 target_hw = headwords_db[sub_phrase]
                                 
-                                # Prevent self-linking
-                                if target_hw != current_hw:
-                                    # Output the exact headword so the dictionary link works
+                                # Check against self-linking AND the blacklist
+                                if target_hw != current_hw and sub_phrase not in blacklist:
                                     result.append(f"<<{target_hw}>>")
                                     i = j
                                     match_found = True
@@ -94,9 +99,6 @@ try:
                     else:
                         body = part.strip()
                         
-                        # UPDATED REGEX: Captures sequences of Capitalized words, 
-                        # optionally separated by short lowercase words (of, the, de, a, an)
-                        # This allows it to capture "The Tower of London" or "Duke of Wellington"
                         linked_body = re.sub(r'\b([A-Z][a-z]+(?:\s+(?:[a-z]{1,3}\s+)?[A-Z][a-z]+)*)\b', link_replacer, body)
                         
                         sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', linked_body)
